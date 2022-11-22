@@ -1,59 +1,34 @@
-use nannou::{prelude::*, state::Mouse, rand};
-use rand::Rng;
+use midir::MidiInputConnection;
+use nannou::prelude::*;
+use particles::{Particle, Modifier};
+use std::sync::mpsc::{channel, Receiver};
+use wmidi::{ControlFunction, MidiMessage, U7};
+
+pub mod midi;
+pub mod particles;
 
 fn main() {
     nannou::app(model).update(update).run();
 }
 
-const SCREEN_WIDTH: u32 = 800;
-const SCREEN_HEIGHT: u32 = 600;
 const NB_PARTICLES: usize = 25;
-
-const RADIUS: f32 = 80.0;
-const MAX_RADIUS_SCALE: f32 = 2.0;
-
-struct Particle {
-    position: Point2,
-    previous: Point2,
-    shift: Point2,
-    size: f32,
-    angle: f32,
-    speed: f32,
-    target_size: f32,
-    orbit: f32,
-    color: Srgb<u8>
-}
-
-impl Particle {
-    pub fn new(mouse: &Mouse) -> Self {
-        // Generate a random RGB color.
-        let mut rand_gen = rand::thread_rng();
-        let red: u8 = rand_gen.gen();
-        let green: u8 = rand_gen.gen();
-        let blue: u8 = rand_gen.gen();
-
-        // Create a default particle with some random elements.
-        Particle { 
-            position: vec2(mouse.x, mouse.y), 
-            previous: vec2(mouse.x, mouse.y),
-            shift: vec2(mouse.x, mouse.y), 
-            size: 2.0, 
-            angle: 0.0, 
-            speed: 0.01 + random_f32() * 0.04,
-            target_size: 5.0, 
-            orbit: RADIUS * 0.5 + (RADIUS * 0.5 * random_f32()),
-            color: Srgb::new(red, green, blue) 
-        }
-    }
-}
+const MAX_RADIUS_SCALE: f32 = 10.0;
+const MAX_ACCELERATOR: f32 = 5.0;
 
 struct Model {
     particles: Vec<Particle>,
-    radius_scale: f32, // Global orbit radius scale to apply to each particle.
+    modifier: Modifier,
+    _connection: Option<MidiInputConnection<()>>,
+    receiver: Receiver<Vec<u8>>,
 }
 
 fn model(app: &App) -> Model {
-    let _window = app.new_window().size(SCREEN_WIDTH, SCREEN_HEIGHT).view(view).build().unwrap();
+    let _window = app
+        .new_window()
+        .fullscreen()
+        .view(view)
+        .build()
+        .unwrap();
     let mut particles = Vec::with_capacity(NB_PARTICLES);
 
     for _i in 0..NB_PARTICLES {
@@ -61,37 +36,52 @@ fn model(app: &App) -> Model {
         particles.push(particle);
     }
 
-    Model {  
+    let (tx, rx) = channel();
+
+    Model {
         particles,
-        radius_scale: 1.0,
+        modifier: Modifier::new(),
+        _connection: midi::init(tx),
+        receiver: rx,
     }
 }
 
 fn update(app: &App, model: &mut Model, _update: Update) {
-    // The radius goes up a little when we're clicking.
-    let mouse_down = app.mouse.buttons.pressed().count() > 0;
-    if mouse_down {
-        model.radius_scale += (MAX_RADIUS_SCALE - model.radius_scale) * 0.02;
-    } else {
-        model.radius_scale -= (model.radius_scale - 1.0) * 0.02;
+    for data in model.receiver.try_recv().iter() {
+        match MidiMessage::try_from(data.as_slice()) {
+            Err(_) => {
+                print!("Invalid midi message");
+            }
+            Ok(midi_message) => {
+                match midi_message {
+                    wmidi::MidiMessage::ControlChange(_, control, value) => {
+                        if control == ControlFunction::EFFECTS_3_DEPTH {
+                            model.modifier.scale = 1.0 + (MAX_RADIUS_SCALE - 1.0)
+                                * <u8 as From<wmidi::U7>>::from(value) as f32
+                                / <u8 as From<wmidi::U7>>::from(U7::MAX) as f32;
+                        } else if control == ControlFunction::SOUND_CONTROLLER_5 {
+                            model.modifier.accelerator = 1.0 + (MAX_ACCELERATOR - 1.0)
+                                * <u8 as From<wmidi::U7>>::from(value) as f32
+                                / <u8 as From<wmidi::U7>>::from(U7::MAX) as f32;
+                        }
+                    }
+                    wmidi::MidiMessage::NoteOn(_channel, _note, _velocity) => {
+                        // println!("Channel {:?}, note {:?}, velocity {:?}", channel, note, velocity);
+                    }
+                    _ => (),
+                }
+            }
+        };
     }
-    model.radius_scale = model.radius_scale.min(MAX_RADIUS_SCALE);
 
-    // Compute the new positions for each particle, following the mouse position 
+    // TODO: cool variations
+    // let mouse_down = app.mouse.buttons.pressed().count() > 0;
+    // model.radius_scale = (model.radius_scale.min(MAX_RADIUS_SCALE)).max(1.0);
+
+    // Compute the new positions for each particle, following the mouse position
     // and orbiting around.
     model.particles.iter_mut().for_each(|particle| {
-        particle.previous = particle.position;
-
-        particle.angle += particle.speed;
-
-        particle.shift.x += (app.mouse.x - particle.shift.x) * particle.speed;
-        particle.shift.y += (app.mouse.y - particle.shift.y) * particle.speed;
-
-        particle.position.x = particle.shift.x + particle.angle.cos() * particle.orbit * model.radius_scale;
-        particle.position.y = particle.shift.y + particle.angle.sin() * particle.orbit * model.radius_scale;
-
-        particle.size += (particle.target_size - particle.size) * 0.2;
-        particle.target_size = 1.0 + random_range(0.0, 5.0);
+        particle.update(&app.mouse, &model.modifier);
     });
 }
 
@@ -103,7 +93,9 @@ fn view(app: &App, model: &Model, frame: Frame) {
     }
 
     // Draw a transparent black rectangle to make the particles fade.
-    draw.rect().w_h(SCREEN_WIDTH as f32, SCREEN_HEIGHT as f32).color(srgba(0.0,0.0,0.0,0.05));
+    draw.rect()
+        .w_h(app.main_window().rect().w() as f32, app.main_window().rect().h() as f32)
+        .color(srgba(0.0, 0.0, 0.0, 0.05));
 
     // Draw a line from the last position to the new one + a circle at the end.
     model.particles.iter().for_each(|particle| {
