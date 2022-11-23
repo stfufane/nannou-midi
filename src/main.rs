@@ -1,8 +1,8 @@
 use midir::MidiInputConnection;
 use nannou::prelude::*;
 use particles::{Particle, Modifier};
-use std::sync::mpsc::{channel, Receiver};
-use wmidi::{ControlFunction, MidiMessage, U7};
+use std::{sync::mpsc::{channel, Receiver}, collections::HashMap};
+use wmidi::{ControlFunction, MidiMessage, U7, Note};
 
 pub mod midi;
 pub mod particles;
@@ -11,12 +11,13 @@ fn main() {
     nannou::app(model).update(update).run();
 }
 
-const NB_PARTICLES: usize = 25;
+const NB_PARTICLES: usize = 50;
 const MAX_RADIUS_SCALE: f32 = 10.0;
 const MAX_ACCELERATOR: f32 = 5.0;
 
 struct Model {
     particles: Vec<Particle>,
+    notes: HashMap<Note, Point2>,
     modifier: Modifier,
     _connection: Option<MidiInputConnection<()>>,
     receiver: Receiver<Vec<u8>>,
@@ -32,7 +33,7 @@ fn model(app: &App) -> Model {
     let mut particles = Vec::with_capacity(NB_PARTICLES);
 
     for _i in 0..NB_PARTICLES {
-        let particle = Particle::new(&app.mouse);
+        let particle = Particle::new(&app.window_rect());
         particles.push(particle);
     }
 
@@ -40,6 +41,7 @@ fn model(app: &App) -> Model {
 
     Model {
         particles,
+        notes: HashMap::new(),
         modifier: Modifier::new(),
         _connection: midi::init(tx),
         receiver: rx,
@@ -47,7 +49,7 @@ fn model(app: &App) -> Model {
 }
 
 fn update(app: &App, model: &mut Model, _update: Update) {
-    for data in model.receiver.try_recv().iter() {
+    for data in model.receiver.try_iter() {
         match MidiMessage::try_from(data.as_slice()) {
             Err(_) => {
                 print!("Invalid midi message");
@@ -65,8 +67,15 @@ fn update(app: &App, model: &mut Model, _update: Update) {
                                 / <u8 as From<wmidi::U7>>::from(U7::MAX) as f32;
                         }
                     }
-                    wmidi::MidiMessage::NoteOn(_channel, _note, _velocity) => {
-                        // println!("Channel {:?}, note {:?}, velocity {:?}", channel, note, velocity);
+                    wmidi::MidiMessage::NoteOn(_channel, note, _velocity) => {
+                        let width = app.main_window().rect().w();
+                        let note_value = <u8 as From<Note>>::from(note) as f32;
+                        let note_max = <u8 as From<Note>>::from(Note::HIGHEST_NOTE) as f32;
+                        let x = width * note_value / note_max - width / 2.;
+                        model.notes.insert(note, vec2(x, - app.main_window().rect().h() / 2.));
+                    }
+                    wmidi::MidiMessage::NoteOff(_channel, note, _velocity ) => {
+                        model.notes.remove_entry(&note);
                     }
                     _ => (),
                 }
@@ -74,14 +83,13 @@ fn update(app: &App, model: &mut Model, _update: Update) {
         };
     }
 
-    // TODO: cool variations
-    // let mouse_down = app.mouse.buttons.pressed().count() > 0;
-    // model.radius_scale = (model.radius_scale.min(MAX_RADIUS_SCALE)).max(1.0);
-
-    // Compute the new positions for each particle, following the mouse position
-    // and orbiting around.
+    // Add some variation depending on time
+    model.modifier.center_shift = vec2(app.time.cos() * 10.0, app.time.sin() * 10.0);
     model.particles.iter_mut().for_each(|particle| {
-        particle.update(&app.mouse, &model.modifier);
+        particle.update(&model.modifier);
+    });
+    model.notes.iter_mut().for_each(|note| { 
+        note.1.y += 9.;
     });
 }
 
@@ -99,15 +107,14 @@ fn view(app: &App, model: &Model, frame: Frame) {
 
     // Draw a line from the last position to the new one + a circle at the end.
     model.particles.iter().for_each(|particle| {
-        draw.line()
-            .points(particle.previous, particle.position)
-            .stroke_weight(particle.size)
-            .color(particle.color);
+        particle.draw(&draw);
+    });
 
+    model.notes.iter().for_each(|note| {
         draw.ellipse()
-            .x_y(particle.position.x, particle.position.y)
-            .radius(particle.size / 2.0)
-            .color(particle.color);
+            .x_y(note.1.x, note.1.y)
+            .radius(12.)
+            .color(nannou::color::LIME);
     });
 
     draw.to_frame(app, &frame).unwrap();
