@@ -1220,6 +1220,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nannou-midi"
+version = "0.1.0"
+dependencies = [
+ "midir",
+ "nannou",
+ "wmidi",
+]
+
+[[package]]
 name = "nannou_core"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2034,15 +2043,6 @@ name = "unicode-width"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0edd1e5b14653f783770bce4a4dabb4a5108a5370a5f5d8cfe8710c361f6c8b"
-
-[[package]]
-name = "universe"
-version = "0.1.0"
-dependencies = [
- "midir",
- "nannou",
- "wmidi",
-]
 
 [[package]]
 name = "version_check"
