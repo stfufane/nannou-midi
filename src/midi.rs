@@ -10,7 +10,7 @@ pub fn init(tx: Sender<Vec<u8>>) -> Option<MidiInputConnection<()>> {
     let in_port = midi_in
         .ports()
         .iter()
-        .find(|&p| midi_in.port_name(p).unwrap() == "Minilab3 MIDI")
+        .find(|&p| midi_in.port_name(p).unwrap() == dotenv!("MIDI_DEVICE"))
         .cloned();
     
     match in_port {

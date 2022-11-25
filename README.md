@@ -3,4 +3,5 @@ Having fun with nannou and midir crates to draw shapes and make them react to MI
 
 ## Config
 
-So far the MIDI device input name is hardcoded in midi.rs module. It recognises CC and note events so far, I'll see where it goes 🤷‍♂️
+The MIDI input name must be set in a .env file or it won't build. It recognises CC and note events so far, I'll see where it goes 🤷‍♂️
+
