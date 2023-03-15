@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 nannou = "0.18"
-midir = "0.8.0"
+midir = "0.9.1"
 wmidi = "4.0.6"
 dotenv_codegen = "0.15.0"

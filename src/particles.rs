@@ -1,30 +1,32 @@
 use nannou::{prelude::*, rand};
 use rand::Rng;
-use crate::MIDI_MAX_VALUE;
 
-const RADIUS: f32 = 80.0;
+const RADIUS: f32 = 50.0;
+
+fn rand_color() -> Srgb<u8> {
+    // Generate a random RGB color.
+    let mut rand_gen = rand::thread_rng();
+    let red: u8 = rand_gen.gen();
+    let green: u8 = rand_gen.gen();
+    let blue: u8 = rand_gen.gen();
+    Srgb::new(red, green, blue)
+}
 
 pub struct RotatingParticle {
     pub held: bool,
-    pub position: Point2,
-    pub previous: Point2,
+    position: Point2,
+    previous: Point2,
     center: Point2,
-    pub size: f32,
+    size: f32,
     angle: f32,
     speed: f32,
     orbit: f32,
-    pub color: Srgb<u8>,
+    color: Srgb<u8>,
     pub lifetime: i32,
 }
 
 impl RotatingParticle {
     pub fn new(center: Point2, velocity: u8) -> Self {
-        // Generate a random RGB color.
-        let mut rand_gen = rand::thread_rng();
-        let red: u8 = rand_gen.gen();
-        let green: u8 = rand_gen.gen();
-        let blue: u8 = rand_gen.gen();
-
         // Create a default particle with some random elements.
         RotatingParticle {
             held: true,
@@ -34,20 +36,24 @@ impl RotatingParticle {
             size: 2.0,
             angle: 0.,
             speed: 0.01 + random_f32() * 0.04,
-            orbit: RADIUS * 0.5 + (RADIUS * velocity as f32 / MIDI_MAX_VALUE as f32),
-            color: Srgb::new(red, green, blue),
-            lifetime: 100
+            orbit: RADIUS,
+            color: rand_color(),
+            lifetime: velocity as i32,
         }
     }
 
     pub fn update(&mut self, modifier: &Modifier) {
-        if !self.held { self.lifetime -= 1; } // The particle will be removed when it reaches 0.
+        if !self.held {
+            self.lifetime -= 1;
+        } // The particle will be removed when it reaches 0.
         self.previous = self.position;
 
         self.angle += self.speed * modifier.accelerator;
 
-        self.position.x = (self.center.x + modifier.center_shift.x) + self.angle.cos() * self.orbit * modifier.scale;
-        self.position.y = (self.center.y + modifier.center_shift.y) + self.angle.sin() * self.orbit * modifier.scale;
+        self.position.x = (self.center.x + modifier.center_shift.x)
+            + self.angle.cos() * self.orbit * modifier.scale;
+        self.position.y = (self.center.y + modifier.center_shift.y)
+            + self.angle.sin() * self.orbit * modifier.scale;
     }
 
     pub fn draw(&self, draw: &Draw) {
@@ -69,8 +75,45 @@ impl RotatingParticle {
     }
 }
 
-pub struct Modifier 
-{
+pub struct RippleCircle {
+    pub held: bool,
+    center: Point2,
+    size: f32,
+    orbit: f32,
+    color: Srgb<u8>,
+    pub lifetime: i32,
+}
+
+impl RippleCircle {
+    pub fn new(center: Point2, velocity: u8) -> Self {
+        RippleCircle {
+            held: true,
+            center,
+            size: 2.,
+            orbit: 5.,
+            color: rand_color(),
+            lifetime: velocity as i32,
+        }
+    }
+
+    pub fn update(&mut self, _modifier: &Modifier) {
+        if !self.held {
+            self.lifetime -= 1;
+        }
+        self.orbit *= 1.02;
+    }
+
+    pub fn draw(&self, draw: &Draw) {
+        draw.ellipse()
+            .x_y(self.center.x, self.center.y)
+            .radius(self.orbit)
+            .no_fill()
+            .stroke_weight(self.size)
+            .stroke_color(self.color);
+    }
+}
+
+pub struct Modifier {
     pub scale: f32,
     pub accelerator: f32,
     pub center_shift: Point2,
